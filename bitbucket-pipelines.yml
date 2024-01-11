@@ -1,0 +1,76 @@
+pipelines:
+  branches:
+    development:
+    - stage:
+        name: Deploy to staging
+        deployment: staging
+        steps:
+        - step:
+            oidc: true
+            name: Build .env
+            image: amazon/aws-cli
+            script:
+              - export AWS_WEB_IDENTITY_TOKEN_FILE=$(pwd)/web-identity-token
+              - echo $BITBUCKET_STEP_OIDC_TOKEN > $(pwd)/web-identity-token
+              - aws secretsmanager get-secret-value --query SecretString --output text --secret-id staging/admin_site >> .env
+            artifacts:
+            - .env
+        - step:
+            name: Build and upload in s3 bucket
+            oidc: true
+            image: node:18
+            script:
+              - export AWS_WEB_IDENTITY_TOKEN_FILE=$(pwd)/web-identity-token
+              - echo $BITBUCKET_STEP_OIDC_TOKEN > $(pwd)/web-identity-token
+              - yarn install
+              - yarn generate
+              - cp -r assets dist/assets
+              - pipe: atlassian/aws-s3-deploy:1.4.0
+                variables:
+                  S3_BUCKET: 'admin-valii'
+                  LOCAL_PATH: 'dist'
+                  DELETE_FLAG: 'true'
+                  AWS_OIDC_ROLE_ARN: $AWS_ROLE_ARN
+              - pipe: atlassian/aws-cloudfront-invalidate:0.9.0
+                variables:
+                  AWS_OIDC_ROLE_ARN: $AWS_ROLE_ARN
+                  DISTRIBUTION_ID: 'E2MF2N1IRFHIX4'
+            caches:
+              - node
+    master:
+    - stage:
+        name: Deploy to production
+        deployment: production
+        steps:
+        - step:
+            oidc: true
+            name: Build .env
+            image: amazon/aws-cli
+            script:
+              - export AWS_WEB_IDENTITY_TOKEN_FILE=$(pwd)/web-identity-token
+              - echo $BITBUCKET_STEP_OIDC_TOKEN > $(pwd)/web-identity-token
+              - aws secretsmanager get-secret-value --query SecretString --output text --secret-id prod/admin_site >> .env
+            artifacts:
+            - .env
+        - step:
+            name: Build and upload in s3 bucket
+            oidc: true
+            image: node:18
+            script:
+              - export AWS_WEB_IDENTITY_TOKEN_FILE=$(pwd)/web-identity-token
+              - echo $BITBUCKET_STEP_OIDC_TOKEN > $(pwd)/web-identity-token
+              - yarn install
+              - yarn generate
+              - cp -r assets dist/assets
+              - pipe: atlassian/aws-s3-deploy:1.4.0
+                variables:
+                  S3_BUCKET: 'admin-valii-prod'
+                  LOCAL_PATH: 'dist'
+                  DELETE_FLAG: 'true'
+                  AWS_OIDC_ROLE_ARN: $AWS_ROLE_ARN
+              - pipe: atlassian/aws-cloudfront-invalidate:0.9.0
+                variables:
+                  AWS_OIDC_ROLE_ARN: $AWS_ROLE_ARN
+                  DISTRIBUTION_ID: 'E3IV3J4GWO8GBS'
+            caches:
+              - node
